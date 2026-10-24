@@ -154,22 +154,36 @@ jobs:
           path: rustdesk
 
       - name: Build single-file executable
+        id: packer
+        continue-on-error: true
         shell: bash
         run: |
+          set -o pipefail
+          mkdir -p ./Output
           sed -i '/dpiAware/d' res/manifest.xml
           pushd ./libs/portable
           pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          if ! python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe 2>&1 | tee ../../packer.log; then
+            popd
+            msg=$(tail -n 80 packer.log | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Portable packer failed::$msg"
+            exit 1
+          fi
           popd
-          mkdir -p ./Output
           mv ./target/release/rustdesk-portable-packer.exe ./Output/${{ env.APP_NAME }}-${{ env.VERSION }}-x64.exe
           sha256sum ./Output/*.exe
+
+      - name: Zip unpacked build
+        run: |
+          New-Item -ItemType Directory -Force -Path ./Output | Out-Null
+          Compress-Archive -Path ./rustdesk/* -DestinationPath ./Output/${{ env.APP_NAME }}-${{ env.VERSION }}-x64-folder.zip -Force
+          Get-ChildItem ./Output
 
       - name: Upload executable
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: help4x-windows-x64-exe
-          path: ./Output/*.exe
+          name: help4x-windows-x64-output
+          path: ./Output/*
 
       - name: Publish release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
@@ -180,4 +194,4 @@ jobs:
           body: |
             Клиент удалённой помощи Help4x на основе RustDesk ${{ env.VERSION }} (AGPL-3.0).
             Сервер help4x.ru и ключ уже встроены — ничего настраивать не нужно.
-          files: ./Output/*.exe
+          files: ./Output/*
